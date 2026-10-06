@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EMU — Cargos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"/>  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<script src="db.js"></script><script src="layout.js"></script>
+<script>if(!Auth.exigir())throw''; renderLayout('cargos.html');</script>
+<script>
+const C = document.getElementById('conteudo');
+let filtro = '';
+
+async function render() {
+  C.innerHTML = skeletonTable(4);
+  let lista = await DB.Cargos.listar();
+  lista = (lista || []).slice().reverse();
+  if (filtro) {
+    lista = lista.filter(c =>
+      c.nome.toLowerCase().includes(filtro) ||
+      (c.descricao||'').toLowerCase().includes(filtro)
+    );
+  }
+
+  C.innerHTML = `
+    <div class="mb-4">${kpiCard({ icon: 'work', label: 'Cargos', value: lista.length, iconColor: 'text-[#ffb4ac]' })}</div>
+    ${pageToolbar(
+      `<input id="busca" type="text" placeholder="Buscar..." value="${esc(filtro)}" class="input-busca" onkeydown="if(event.key==='Enter'){filtro=this.value.toLowerCase();render();}"/>`,
+      `<button type="button" onclick="abrirForm()" class="btn-primary"><span class="material-symbols-outlined text-base">add</span>Novo Cargo</button>`
+    )}
+    <div class="panel table-wrap">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-[#484848]/30 text-[10px] text-[#acabaa] uppercase tracking-wider">
+            <th class="px-4 py-3 text-left">Nome</th>
+            <th class="px-4 py-3 text-left">Descrição</th>
+            <th class="px-4 py-3 text-left">Cadastro</th>
+            <th class="px-4 py-3 text-center">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.length ? lista.map(c => `
+            <tr class="border-b border-[#484848]/10 last:border-0">
+              <td class="px-4 py-3 font-semibold text-white">${esc(c.nome)}</td>
+              <td class="px-4 py-3 text-[#acabaa] text-xs max-w-md truncate">${esc(c.descricao)||'—'}</td>
+              <td class="px-4 py-3 text-xs text-[#acabaa]">${fmtData(c.criadoEm)}</td>
+              <td class="px-4 py-3 text-center">
+                <div class="flex items-center justify-center gap-1">
+                  <button onclick="abrirForm(${c.id})" title="Editar" class="p-1 text-[#acabaa] hover:text-[#ffb4ac] transition-colors"><span class="material-symbols-outlined text-base">edit</span></button>
+                </div>
+              </td>
+            </tr>`).join('') : `<tr><td colspan="4">${emptyState('Nenhum cargo cadastrado.', 'work')}</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function abrirForm(id) {
+  const c = id ? await DB.Cargos.buscar(id) : {};
+  const conteudo = `
+    <div class="space-y-4">
+      ${campo('Nome do cargo', 'f-nome', 'text', c.nome||'')}
+      ${textarea('Descrição', 'f-descricao', c.descricao||'')}
+    </div>`;
+
+  abrirModal(id ? 'Editar Cargo' : 'Novo Cargo', conteudo, async () => {
+    const dados = { nome: val('f-nome'), descricao: val('f-descricao') };
+    if (!dados.nome) { toast('Nome é obrigatório.', 'err'); return false; }
+    try {
+      if (id) { await DB.Cargos.atualizar(id, dados); toast('Cargo atualizado!'); }
+      else { await DB.Cargos.criar(dados); toast('Cargo cadastrado!'); }
+      render();
+      return true;
+    } catch (e) {
+      toast(e.message, 'err');
+      return false;
+    }
+  });
+}
+
+render().catch(console.error);
+</script>
+</body>
+</html>

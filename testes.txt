@@ -1,0 +1,2 @@
+servidor: apache + php + maria db/mysql
+

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EMU — Fornecedores</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<script src="db.js"></script>
+<script src="layout.js"></script>
+<script>if(!Auth.exigir())throw''; renderLayout('fornecedores.html');</script>
+<script>
+let filtro = '';
+
+function getC() { return document.getElementById('conteudo'); }
+
+async function render() {
+  const C = getC();
+  if (!C) { setTimeout(render, 50); return; }
+  C.innerHTML = skeletonTable(5);
+  try {
+    let lista = await DB.Fornecedores.listar();
+    lista = (lista || []).slice().reverse();
+    if (filtro) {
+      lista = lista.filter(f =>
+        f.nome.toLowerCase().includes(filtro) ||
+        (f.cnpj||'').toLowerCase().includes(filtro) ||
+        (f.contato||'').toLowerCase().includes(filtro) ||
+        (f.email||'').toLowerCase().includes(filtro) ||
+        (f.telefone||'').toLowerCase().includes(filtro)
+      );
+    }
+    getC().innerHTML = `
+      <div class="mb-4">${kpiCard({ icon: 'local_shipping', label: 'Fornecedores', value: lista.length, iconColor: 'text-[#ffb4ac]' })}</div>
+      ${pageToolbar(
+        `<input id="busca" type="text" placeholder="Buscar..." value="${esc(filtro)}" class="input-busca" onkeydown="if(event.key==='Enter'){filtro=this.value.toLowerCase();render();}"/>`,
+        `<button type="button" onclick="abrirForm()" class="btn-primary"><span class="material-symbols-outlined text-base">add</span>Novo Fornecedor</button>`
+      )}
+      <div class="panel table-wrap">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-[#484848]/30 text-[10px] text-[#acabaa] uppercase tracking-wider">
+              <th class="px-4 py-3 text-left">Empresa</th>
+              <th class="px-4 py-3 text-left">CNPJ</th>
+              <th class="px-4 py-3 text-left">Contato</th>
+              <th class="px-4 py-3 text-left">Telefone</th>
+              <th class="px-4 py-3 text-left">E-mail</th>
+              <th class="px-4 py-3 text-left">Cadastro</th>
+              <th class="px-4 py-3 text-center">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lista.length ? lista.map(f => `
+              <tr class="border-b border-[#484848]/10 last:border-0">
+                <td class="px-4 py-3 font-semibold text-white">${esc(f.nome)}</td>
+                <td class="px-4 py-3 text-[#acabaa] font-mono text-xs">${esc(f.cnpj)||'—'}</td>
+                <td class="px-4 py-3 text-[#acabaa]">${esc(f.contato)||'—'}</td>
+                <td class="px-4 py-3 text-[#acabaa]">${esc(f.telefone)||'—'}</td>
+                <td class="px-4 py-3 text-[#acabaa]">${esc(f.email)||'—'}</td>
+                <td class="px-4 py-3 text-xs text-[#acabaa]">${fmtData(f.criadoEm)}</td>
+                <td class="px-4 py-3 text-center">
+                  <div class="flex items-center justify-center gap-1">
+                    <button onclick="abrirForm(${f.id})" title="Editar" class="p-1 text-[#acabaa] hover:text-[#ffb4ac] transition-colors"><span class="material-symbols-outlined text-base">edit</span></button>
+                  </div>
+                </td>
+              </tr>`).join('') : `<tr><td colspan="7">${emptyState('Nenhum fornecedor cadastrado.', 'local_shipping')}</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (e) {
+    getC().innerHTML = `<div class="panel panel-padded text-red-400 flex items-center gap-3">
+      <span class="material-symbols-outlined">error</span>
+      <span>Erro: ${esc(e.message)}</span>
+    </div>`;
+  }
+}
+
+async function abrirForm(id) {
+  try {
+    const f = id ? await DB.Fornecedores.buscar(id) : {};
+    const conteudo = `
+      <div class="grid grid-cols-2 gap-4">
+        ${campo('Nome / Razão Social', 'f-nome', 'text', f.nome||'')}
+        ${campo('CNPJ', 'f-cnpj', 'text', f.cnpj||'')}
+        ${campo('Nome do Contato', 'f-contato', 'text', f.contato||'')}
+        ${campo('Telefone', 'f-telefone', 'tel', f.telefone||'')}
+        ${campo('E-mail', 'f-email', 'email', f.email||'')}
+      </div>`;
+    abrirModal(id ? 'Editar Fornecedor' : 'Novo Fornecedor', conteudo, async () => {
+      const dados = {
+        nome: val('f-nome'), cnpj: val('f-cnpj'), contato: val('f-contato'),
+        telefone: val('f-telefone'), email: val('f-email')
+      };
+      if (!dados.nome) { toast('Nome é obrigatório.', 'err'); return false; }
+      try {
+        if (id) { await DB.Fornecedores.atualizar(id, dados); toast('Fornecedor atualizado!'); }
+        else { await DB.Fornecedores.criar(dados); toast('Fornecedor cadastrado!'); }
+        render(); return true;
+      } catch (e) { toast(e.message, 'err'); return false; }
+    });
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function excluir(id) {
+  try {
+    const f = await DB.Fornecedores.buscar(id);
+    if (!f || !confirmar(`Excluir fornecedor "${f.nome}"?`)) return;
+    await DB.Fornecedores.excluir(id);
+    toast('Fornecedor excluído.');
+    render();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+render();
+</script>
+</body>
+</html>

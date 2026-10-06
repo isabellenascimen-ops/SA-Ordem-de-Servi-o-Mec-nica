@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EMU — Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <script src="db.js"></script>
+  <script src="layout.js"></script>
+  <script>
+    if (!Auth.exigir()) throw '';
+    renderLayout('dashboard.html');
+  </script>
+  <script>
+    const container = document.getElementById('conteudo');
+    let charts = [];
+
+    const CORES_OS = {
+      pendente: '#fbbf24',
+      em_execucao: '#60a5fa',
+      finalizado: '#4ade80',
+      cancelado: '#f87171',
+    };
+    const CORES_NOTAS = { emitida: '#60a5fa', paga: '#4ade80', cancelada: '#f87171' };
+
+    function destroyCharts() {
+      charts.forEach(c => c.destroy());
+      charts = [];
+    }
+
+    function chartDefaults() {
+      Chart.defaults.color = '#acabaa';
+      Chart.defaults.borderColor = 'rgba(72,72,72,0.3)';
+      Chart.defaults.font.family = 'Manrope, sans-serif';
+    }
+
+    async function render() {
+      container.innerHTML = skeletonDashboard();
+      destroyCharts();
+
+      try {
+        const d = await DB.Dashboard.stats();
+        const usuario = Auth.atual() || { nome: 'Usuário' };
+        const nomeCurto = (usuario.nome || 'Usuário').split(' ')[0];
+
+        container.innerHTML = `
+          <div class="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 class="text-xl font-black text-white">Olá, ${esc(nomeCurto)}</h1>
+              <p class="text-sm text-[#acabaa] mt-0.5">Resumo operacional da oficina</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <a href="os.html" class="btn-primary"><span class="material-symbols-outlined text-base">add</span>Nova OS</a>
+              <a href="notas.html" class="btn-ghost"><span class="material-symbols-outlined text-base">receipt</span>Nota</a>
+              <a href="estoque.html" class="btn-ghost"><span class="material-symbols-outlined text-base">warning</span>Estoque</a>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${kpiCard({ icon: 'build', label: 'OS Pendentes', value: d.os_pendentes, href: 'os.html?status=pendente', iconColor: 'text-yellow-400' })}
+            ${kpiCard({ icon: 'autorenew', label: 'Em Execução', value: d.os_execucao, href: 'os.html?status=em_execucao', iconColor: 'text-blue-400' })}
+            ${kpiCard({ icon: 'check_circle', label: 'Finalizadas (mês)', value: d.os_finalizadas_mes, href: 'os.html?status=finalizado', iconColor: 'text-green-400' })}
+            ${kpiCard({ icon: 'assignment', label: 'Total de OS', value: d.os_total, href: 'os.html', iconColor: 'text-[#ffb4ac]' })}
+            ${kpiCard({ icon: 'payments', label: 'Faturamento (mês)', value: fmt(d.faturamento_mes), href: 'notas.html', iconColor: 'text-[#ffb4ac]' })}
+            ${kpiCard({ icon: 'receipt_long', label: 'Notas (mês)', value: d.notas_mes, href: 'notas.html', iconColor: 'text-[#acabaa]' })}
+            ${kpiCard({ icon: 'warning', label: 'Estoque Crítico', value: d.estoque_critico, href: 'estoque.html', variant: d.estoque_critico > 0 ? 'alert' : '', iconColor: 'text-red-400' })}
+            ${kpiCard({ icon: 'inventory_2', label: 'Valor Estoque', value: fmt(d.valor_estoque), href: 'estoque.html', iconColor: 'text-[#acabaa]' })}
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="panel panel-padded">
+              <div class="panel-header"><span class="material-symbols-outlined text-[#ffb4ac]">donut_large</span>OS por status</div>
+              <div class="h-56 flex items-center justify-center"><canvas id="chart-os-status"></canvas></div>
+            </div>
+            <div class="panel panel-padded">
+              <div class="panel-header"><span class="material-symbols-outlined text-[#ffb4ac]">bar_chart</span>Faturamento (6 meses)</div>
+              <div class="h-56"><canvas id="chart-faturamento"></canvas></div>
+            </div>
+            <div class="panel panel-padded">
+              <div class="panel-header"><span class="material-symbols-outlined text-[#ffb4ac]">pie_chart</span>Notas por status</div>
+              <div class="h-56 flex items-center justify-center"><canvas id="chart-notas"></canvas></div>
+            </div>
+            <div class="panel panel-padded">
+              <div class="panel-header"><span class="material-symbols-outlined text-[#ffb4ac]">leaderboard</span>Top clientes (OS)</div>
+              <div class="h-56"><canvas id="chart-clientes"></canvas></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            ${panel('Últimas ordens de serviço', 'build', renderOsRecentes(d.os_recentes || []))}
+            ${panel('Estoque crítico', 'warning', renderEstoqueCritico(d.estoque_critico_lista || []), 'border-red-500/20')}
+          </div>
+        `;
+
+        chartDefaults();
+        renderCharts(d);
+      } catch (e) {
+        container.innerHTML = `<div class="panel panel-padded text-red-400">Erro ao carregar dashboard: ${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderOsRecentes(lista) {
+      if (!lista.length) return emptyState('Nenhuma OS cadastrada.', 'build');
+      return `<div class="space-y-2">${lista.map(o => `
+        <a href="os.html" onclick="event.preventDefault();verOs(${o.id})" class="flex items-center justify-between py-2 border-b border-[#484848]/10 last:border-0 hover:bg-[#1a1a1a] rounded-lg px-2 -mx-2 transition-colors">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-white truncate">${esc(o.numero)} — ${esc(o.cliente)}</p>
+            <p class="text-xs text-[#acabaa] truncate">${esc(o.veiculo)} · ${esc(o.servico)}</p>
+          </div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ml-2 badge-${o.status === 'em_execucao' ? 'execucao' : o.status}">${statusLabelOs(o.status)}</span>
+        </a>`).join('')}</div>`;
+    }
+
+    function renderEstoqueCritico(lista) {
+      if (!lista.length) return `<p class="text-sm text-green-400/90 flex items-center gap-2"><span class="material-symbols-outlined text-base">check_circle</span>Estoque em ordem!</p>`;
+      return `<div class="space-y-2">${lista.map(p => `
+        <a href="estoque.html" class="flex items-center justify-between py-2 border-b border-[#484848]/10 last:border-0 hover:bg-[#1a1a1a] rounded-lg px-2 -mx-2">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-white truncate">${esc(p.nome)}</p>
+            <p class="text-xs text-[#acabaa]">${esc(p.sku)} · mín. ${p.minimo}</p>
+          </div>
+          <span class="text-sm font-bold text-red-400 shrink-0 ml-2">${p.quantidade} un.</span>
+        </a>`).join('')}</div>`;
+    }
+
+    function renderCharts(d) {
+      const osStatus = d.os_por_status || {};
+      const osLabels = Object.keys(osStatus).map(k => statusLabelOs(k));
+      const osData = Object.values(osStatus);
+      const osColors = Object.keys(osStatus).map(k => CORES_OS[k] || '#acabaa');
+
+      const elOs = document.getElementById('chart-os-status');
+      if (elOs && osData.length) {
+        charts.push(new Chart(elOs, {
+          type: 'doughnut',
+          data: { labels: osLabels, datasets: [{ data: osData, backgroundColor: osColors, borderWidth: 0 }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } },
+        }));
+      }
+
+      const fat = d.faturamento_mensal || [];
+      const elFat = document.getElementById('chart-faturamento');
+      if (elFat) {
+        charts.push(new Chart(elFat, {
+          type: 'bar',
+          data: {
+            labels: fat.map(f => {
+              const [y, m] = f.mes.split('-');
+              return new Date(y, m - 1).toLocaleDateString('pt-BR', { month: 'short' });
+            }),
+            datasets: [{ label: 'Recebido', data: fat.map(f => f.valor), backgroundColor: 'rgba(255,180,172,0.7)', borderRadius: 6 }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } },
+          },
+        }));
+      }
+
+      const notasSt = d.notas_por_status || {};
+      const elNotas = document.getElementById('chart-notas');
+      if (elNotas && Object.keys(notasSt).length) {
+        charts.push(new Chart(elNotas, {
+          type: 'doughnut',
+          data: {
+            labels: Object.keys(notasSt).map(statusLabelNota),
+            datasets: [{ data: Object.values(notasSt), backgroundColor: Object.keys(notasSt).map(k => CORES_NOTAS[k] || '#acabaa'), borderWidth: 0 }],
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } },
+        }));
+      }
+
+      const top = d.top_clientes || [];
+      const elCli = document.getElementById('chart-clientes');
+      if (elCli && top.length) {
+        charts.push(new Chart(elCli, {
+          type: 'bar',
+          data: {
+            labels: top.map(t => t.cliente.length > 18 ? t.cliente.slice(0, 16) + '…' : t.cliente),
+            datasets: [{ data: top.map(t => t.total), backgroundColor: 'rgba(147,0,14,0.6)', borderRadius: 4 }],
+          },
+          options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } },
+          },
+        }));
+      }
+    }
+
+    window.verOs = async function (id) {
+      const os = await DB.OS.buscar(id);
+      if (!os) return;
+      let pecasHtml = '';
+      if (os.pecas?.length) {
+        pecasHtml = `<div class="pt-2 border-t border-[#484848]/20 text-xs"><p class="text-[#acabaa] uppercase mb-1">Peças</p>${os.pecas.map(p => `<div>${esc(p.nome)} × ${p.quantidade}</div>`).join('')}</div>`;
+      }
+      abrirModal(`OS ${os.numero}`, `
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div><p class="text-[10px] text-[#acabaa] uppercase">Cliente</p><p class="text-white font-semibold">${esc(os.cliente)}</p></div>
+          <div><p class="text-[10px] text-[#acabaa] uppercase">Status</p><p><span class="text-[10px] px-2 py-0.5 rounded-full badge-${os.status === 'em_execucao' ? 'execucao' : os.status}">${statusLabelOs(os.status)}</span></p></div>
+          <div><p class="text-[10px] text-[#acabaa] uppercase">Veículo</p><p class="text-white">${esc(os.veiculo)}</p></div>
+          <div><p class="text-[10px] text-[#acabaa] uppercase">Técnico</p><p class="text-white">${esc(os.tecnico) || '—'}</p></div>
+        </div>${pecasHtml}
+      `, () => true);
+      document.getElementById('salvar-modal').textContent = 'Fechar';
+      document.getElementById('cancelar-modal').style.display = 'none';
+      document.getElementById('salvar-modal').onclick = () => document.getElementById('modal-emu')?.remove();
+    };
+
+    render();
+  </script>
+</body>
+</html>

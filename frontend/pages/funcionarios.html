@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EMU — Funcionários</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"/>  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<script src="db.js"></script><script src="layout.js"></script>
+<script>if(!Auth.exigir())throw''; renderLayout('funcionarios.html');</script>
+<script>
+const C = document.getElementById('conteudo');
+let filtro = '';
+
+async function render() {
+  C.innerHTML = skeletonTable(5);
+  let lista = await DB.Funcionarios.listar();
+  lista = (lista || []).slice().reverse();
+  if (filtro) {
+    lista = lista.filter(f =>
+      f.nome.toLowerCase().includes(filtro) ||
+      (f.cargo||'').toLowerCase().includes(filtro) ||
+      (f.email||'').toLowerCase().includes(filtro) ||
+      (f.telefone||'').toLowerCase().includes(filtro)
+    );
+  }
+
+  C.innerHTML = `
+    <div class="mb-4">${kpiCard({ icon: 'badge', label: 'Funcionários', value: lista.length, iconColor: 'text-[#ffb4ac]' })}</div>
+    ${pageToolbar(
+      `<input id="busca" type="text" placeholder="Buscar..." value="${esc(filtro)}" class="input-busca" onkeydown="if(event.key==='Enter'){filtro=this.value.toLowerCase();render();}"/>`,
+      `<button type="button" onclick="abrirForm()" class="btn-primary"><span class="material-symbols-outlined text-base">person_add</span>Novo Funcionário</button>`
+    )}
+    <div class="panel table-wrap">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-[#484848]/30 text-[10px] text-[#acabaa] uppercase tracking-wider">
+            <th class="px-4 py-3 text-left">Nome</th>
+            <th class="px-4 py-3 text-left">Cargo</th>
+            <th class="px-4 py-3 text-left">Telefone</th>
+            <th class="px-4 py-3 text-left">E-mail</th>
+            <th class="px-4 py-3 text-left">Admissão</th>
+            <th class="px-4 py-3 text-left">Cadastro</th>
+            <th class="px-4 py-3 text-center">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.length ? lista.map(f => `
+            <tr class="border-b border-[#484848]/10 last:border-0">
+              <td class="px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded-full bg-[#93000e]/30 flex items-center justify-center flex-shrink-0">
+                    <span class="text-[#ffb4ac] font-bold text-sm">${esc(f.nome.charAt(0).toUpperCase())}</span>
+                  </div>
+                  <span class="font-semibold text-white">${esc(f.nome)}</span>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-[#acabaa]">${esc(f.cargo)||'—'}</td>
+              <td class="px-4 py-3 text-[#acabaa]">${esc(f.telefone)||'—'}</td>
+              <td class="px-4 py-3 text-[#acabaa]">${esc(f.email)||'—'}</td>
+              <td class="px-4 py-3 text-[#acabaa]">${f.admissao?fmtData(f.admissao):'—'}</td>
+              <td class="px-4 py-3 text-xs text-[#acabaa]">${fmtData(f.criadoEm)}</td>
+              <td class="px-4 py-3 text-center">
+                <div class="flex items-center justify-center gap-1">
+                  <button onclick="abrirForm(${f.id})" title="Editar" class="p-1 text-[#acabaa] hover:text-[#ffb4ac] transition-colors"><span class="material-symbols-outlined text-base">edit</span></button>
+                </div>
+              </td>
+            </tr>`).join('') : `<tr><td colspan="7">${emptyState('Nenhum funcionário cadastrado.', 'badge')}</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function abrirForm(id) {
+  const f = id ? await DB.Funcionarios.buscar(id) : {};
+  const optsCargo = await opcoesCargos(String(f.cargo_id || ''), 'Nenhum');
+  const conteudo = `
+    <div class="grid grid-cols-2 gap-4">
+      ${campo('Nome Completo', 'f-nome', 'text', f.nome||'')}
+      ${select('Cargo', 'f-cargo', optsCargo, String(f.cargo_id || ''))}
+      ${campo('Telefone', 'f-telefone', 'tel', f.telefone||'')}
+      ${campo('E-mail', 'f-email', 'email', f.email||'')}
+      ${campo('Data de Admissão', 'f-admissao', 'date', f.admissao||'')}
+    </div>`;
+
+  abrirModal(id ? 'Editar Funcionário' : 'Novo Funcionário', conteudo, async () => {
+    const cargo_id = parseInt(val('f-cargo'), 10) || null;
+    const dados = {
+      nome: val('f-nome'), cargo_id,
+      telefone: val('f-telefone'), email: val('f-email'), admissao: val('f-admissao')
+    };
+    if (!dados.nome) { toast('Nome é obrigatório.', 'err'); return false; }
+    try {
+      if (id) { await DB.Funcionarios.atualizar(id, dados); toast('Funcionário atualizado!'); }
+      else { await DB.Funcionarios.criar(dados); toast('Funcionário cadastrado!'); }
+      render();
+      return true;
+    } catch (e) {
+      toast(e.message, 'err');
+      return false;
+    }
+  });
+}
+
+async function excluir(id) {
+  const f = await DB.Funcionarios.buscar(id);
+  if (!f || !confirmar(`Excluir funcionário "${f.nome}"?`)) return;
+  try {
+    await DB.Funcionarios.excluir(id);
+    toast('Funcionário excluído.');
+    render();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+render().catch(console.error);
+</script>
+</body>
+</html>

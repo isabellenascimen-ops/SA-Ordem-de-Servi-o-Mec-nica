@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EMU — Estoque</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"/>  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<script src="db.js"></script><script src="layout.js"></script>
+<script>if(!Auth.exigir())throw''; renderLayout('estoque.html');</script>
+<script>
+const C = document.getElementById('conteudo');
+let filtro = '';
+
+async function render() {
+  C.innerHTML = skeletonTable(6);
+  let lista = await DB.Estoque.listar();
+  lista = (lista || []).slice().reverse();
+  if (filtro) {
+    lista = lista.filter(p =>
+      p.nome.toLowerCase().includes(filtro) ||
+      (p.sku||'').toLowerCase().includes(filtro) ||
+      (p.categoria||'').toLowerCase().includes(filtro) ||
+      (p.fornecedor||'').toLowerCase().includes(filtro)
+    );
+  }
+
+  const valorTotal = lista.reduce((s,p) => s + p.preco*p.quantidade, 0);
+  const criticos = lista.filter(p => p.quantidade <= p.minimo).length;
+
+  C.innerHTML = `
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      ${kpiCard({ icon: 'inventory_2', label: 'Total de Itens', value: lista.length, iconColor: 'text-[#acabaa]' })}
+      ${kpiCard({ icon: 'payments', label: 'Valor em Estoque', value: fmt(valorTotal), iconColor: 'text-[#ffb4ac]' })}
+      ${kpiCard({ icon: 'warning', label: 'Itens Críticos', value: criticos, href: 'estoque.html', variant: criticos ? 'alert' : '', iconColor: criticos ? 'text-red-400' : 'text-green-400' })}
+    </div>
+    ${pageToolbar(
+      `<input id="busca" type="text" placeholder="Buscar..." value="${esc(filtro)}" class="input-busca" onkeydown="if(event.key==='Enter'){filtro=this.value.toLowerCase();render();}"/><span class="text-xs text-[#acabaa] ml-2">${lista.length} item(ns)</span>`,
+      `<button type="button" onclick="abrirForm()" class="btn-primary"><span class="material-symbols-outlined text-base">add</span>Nova Peça</button>`
+    )}
+    <div class="panel table-wrap">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-[#484848]/30 text-[10px] text-[#acabaa] uppercase tracking-wider">
+            <th class="px-4 py-3 text-left">SKU</th>
+            <th class="px-4 py-3 text-left">Nome</th>
+            <th class="px-4 py-3 text-left">Categoria</th>
+            <th class="px-4 py-3 text-left">Fornecedor</th>
+            <th class="px-4 py-3 text-right">Qtd</th>
+            <th class="px-4 py-3 text-right">Mín.</th>
+            <th class="px-4 py-3 text-right">Preço</th>
+            <th class="px-4 py-3 text-center">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.length ? lista.map(p => {
+            const critico = p.quantidade <= p.minimo;
+            return `<tr class="border-b border-[#484848]/10 last:border-0 ${critico?'row-critico':''}">
+              <td class="px-4 py-3 text-xs font-mono text-[#acabaa]">${esc(p.sku)}</td>
+              <td class="px-4 py-3 font-semibold text-white">${esc(p.nome)}</td>
+              <td class="px-4 py-3 text-[#acabaa]">${esc(p.categoria)}</td>
+              <td class="px-4 py-3 text-[#acabaa] text-xs">${esc(p.fornecedor)||'—'}</td>
+              <td class="px-4 py-3 text-right">
+                <div class="flex flex-col items-end gap-1">
+                  <div class="flex items-center justify-end gap-1 font-bold ${critico?'text-red-400':'text-white'}">
+                    <button type="button" onclick="ajustar(${p.id},-1)" aria-label="Diminuir" class="w-5 h-5 rounded text-xs bg-[#1f2020] hover:bg-[#252626] text-[#acabaa] flex items-center justify-center">−</button>
+                    <span class="w-8 text-center">${p.quantidade}</span>
+                    <button type="button" onclick="ajustar(${p.id},1)" aria-label="Aumentar" class="w-5 h-5 rounded text-xs bg-[#1f2020] hover:bg-[#252626] text-[#acabaa] flex items-center justify-center">+</button>
+                  </div>
+                  ${stockBarHtml(p.quantidade, p.minimo)}
+                </div>
+              </td>
+              <td class="px-4 py-3 text-right text-[#acabaa]">${p.minimo}</td>
+              <td class="px-4 py-3 text-right text-white">${fmt(p.preco)}</td>
+              <td class="px-4 py-3 text-center">
+                <div class="flex items-center justify-center gap-1">
+                  <button onclick="abrirForm(${p.id})" title="Editar" class="p-1 text-[#acabaa] hover:text-[#ffb4ac] transition-colors"><span class="material-symbols-outlined text-base">edit</span></button>
+                  
+                </div>
+              </td>
+            </tr>`;
+          }).join('') : `<tr><td colspan="8">${emptyState('Nenhum item encontrado.', 'inventory_2')}</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function ajustar(id, delta) {
+  try {
+    const p = await DB.Estoque.buscar(id);
+    if (!p) return;
+    const nova = Math.max(0, p.quantidade + delta);
+    await DB.Estoque.atualizar(id, { ...p, quantidade: nova });
+    render();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function abrirForm(id) {
+  const p = id ? await DB.Estoque.buscar(id) : {};
+  const fornecedores = await DB.Fornecedores.listar();
+  const optsFornecedor = [['', 'Nenhum'], ...(fornecedores||[]).map(f => [String(f.id), f.nome])];
+  const conteudo = `
+    <div class="grid grid-cols-2 gap-4">
+      ${campo('Nome', 'f-nome', 'text', p.nome||'')}
+      ${campo('SKU', 'f-sku', 'text', p.sku||'')}
+      ${campo('Categoria', 'f-categoria', 'text', p.categoria||'')}
+      ${select('Fornecedor', 'f-fornecedor', optsFornecedor, String(p.fornecedor_id||''))}
+      ${campo('Quantidade', 'f-quantidade', 'number', p.quantidade??0)}
+      ${campo('Mínimo', 'f-minimo', 'number', p.minimo??5)}
+      ${campo('Preço (R$)', 'f-preco', 'number', p.preco??0, 'step="0.01"')}
+    </div>`;
+
+  abrirModal(id ? 'Editar Peça' : 'Nova Peça', conteudo, async () => {
+    const fid = parseInt(val('f-fornecedor'), 10) || null;
+    const dados = {
+      nome: val('f-nome'), sku: val('f-sku'), categoria: val('f-categoria'),
+      fornecedor_id: fid,
+      quantidade: parseInt(val('f-quantidade'), 10) || 0,
+      minimo: parseInt(val('f-minimo'), 10) || 5,
+      preco: parseFloat(val('f-preco')) || 0
+    };
+    if (!dados.nome || !dados.sku) { toast('Nome e SKU são obrigatórios.', 'err'); return false; }
+    try {
+      if (id) { await DB.Estoque.atualizar(id, dados); toast('Peça atualizada!'); }
+      else { await DB.Estoque.criar(dados); toast('Peça cadastrada!'); }
+      render();
+      return true;
+    } catch (e) {
+      toast(e.message, 'err');
+      return false;
+    }
+  });
+}
+
+async function excluir(id) {
+  const p = await DB.Estoque.buscar(id);
+  if (!p || !confirmar(`Excluir "${p.nome}"?`)) return;
+  try {
+    await DB.Estoque.excluir(id);
+    toast('Peça excluída.');
+    render();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+render().catch(console.error);
+</script>
+</body>
+</html>

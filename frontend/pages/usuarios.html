@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EMU — Usuários</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<script src="db.js"></script>
+<script src="layout.js"></script>
+<script>if(!Auth.exigir())throw''; renderLayout('usuarios.html');</script>
+<script>
+  function getC() { return document.getElementById('conteudo'); }
+
+  async function render() {
+    const C = getC();
+    if (!C) { setTimeout(render, 50); return; }
+    C.innerHTML = skeletonTable(4);
+    try {
+      const users = await DB.Usuarios.listar();
+      getC().innerHTML = `
+        <div class="mb-4">${kpiCard({ icon: 'manage_accounts', label: 'Usuários ativos', value: (users||[]).length, iconColor: 'text-[#ffb4ac]' })}</div>
+        ${pageToolbar('',
+          `<button type="button" onclick="abrirForm()" class="btn-primary"><span class="material-symbols-outlined text-base">person_add</span>Novo Usuário</button>`
+        )}
+        <div class="panel table-wrap">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-[#484848]/30 text-[10px] text-[#acabaa] uppercase tracking-wider">
+                <th class="px-4 py-3 text-left">Nome</th>
+                <th class="px-4 py-3 text-left">E-mail</th>
+                <th class="px-4 py-3 text-left">Cargo</th>
+                <th class="px-4 py-3 text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(users||[]).length ? (users||[]).map(u => `
+                <tr class="border-b border-[#484848]/10 last:border-0">
+                  <td class="px-4 py-3 font-semibold text-white">${esc(u.nome)}</td>
+                  <td class="px-4 py-3 text-[#acabaa]">${esc(u.email)}</td>
+                  <td class="px-4 py-3 text-[#acabaa]">${esc(u.cargo)||'—'}</td>
+                  <td class="px-4 py-3 text-center">
+                    <div class="flex items-center justify-center gap-1">
+                      <button onclick="abrirForm(${u.id})" title="Editar" class="p-1 text-[#acabaa] hover:text-[#ffb4ac] transition-colors">
+                        <span class="material-symbols-outlined text-base">edit</span>
+                      </button>
+                      ${u.email !== 'admin@emu.local' ? `
+                          <span class="material-symbols-outlined text-base">delete</span>
+                        </button>
+                      ` : '<span class="text-[#484848] text-xs px-1" title="Usuário fixo">fixo</span>'}
+                    </div>
+                  </td>
+                </tr>
+              `).join('') : `<tr><td colspan="4">${emptyState('Nenhum usuário cadastrado.', 'manage_accounts')}</td></tr>`}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (e) {
+      getC().innerHTML = `<div class="panel panel-padded text-red-400 flex items-center gap-3">
+        <span class="material-symbols-outlined">error</span>
+        <span>Erro: ${esc(e.message)}</span>
+      </div>`;
+    }
+  }
+
+  async function abrirForm(id) {
+    try {
+      const u = id ? await DB.Usuarios.buscar(id) : {};
+      if (id && !u) { toast('Usuário não encontrado.', 'err'); return; }
+      const optsCargo = await opcoesCargos(String(u.cargo_id||''));
+      const conteudo = `
+        <div class="grid grid-cols-2 gap-4">
+          ${campo('Nome', 'f-nome', 'text', u.nome||'')}
+          ${campo('E-mail', 'f-email', 'email', u.email||'')}
+          ${campo('Senha', 'f-senha', 'password', '', id ? 'placeholder="Deixe em branco para manter"' : '')}
+          ${select('Cargo', 'f-cargo', optsCargo, String(u.cargo_id||''))}
+        </div>
+        ${id ? '<p class="text-xs text-[#acabaa] mt-1">Preencha a senha apenas se quiser alterá-la.</p>' : ''}`;
+      abrirModal(id ? 'Editar Usuário' : 'Novo Usuário', conteudo, async () => {
+        const cargo_id = parseInt(val('f-cargo'), 10);
+        const sel = document.getElementById('f-cargo');
+        const cargoNome = sel?.options[sel.selectedIndex]?.text||'';
+        const dados = { nome: val('f-nome'), email: val('f-email'), cargo_id };
+        const senha = val('f-senha');
+        if (!dados.nome||!dados.email) { toast('Nome e e-mail são obrigatórios.','err'); return false; }
+        if (!cargo_id) { toast('Selecione um cargo.','err'); return false; }
+        if (!id&&!senha) { toast('Senha é obrigatória para novo usuário.','err'); return false; }
+        if (senha) dados.senha = senha;
+        try {
+          if (id) {
+            await DB.Usuarios.atualizar(id, dados);
+            const sessao = Auth.atual();
+            if (sessao&&(sessao.email===u.email||sessao.email===dados.email)) {
+              Auth.salvar({ nome: dados.nome, email: dados.email, cargo: cargoNome, cargo_id });
+              const nomeEl = document.getElementById('sidebar-user-name');
+              if (nomeEl) { nomeEl.textContent = dados.nome; nomeEl.title = dados.nome; }
+            }
+            toast('Usuário atualizado!');
+          } else {
+            await DB.Usuarios.criar(dados);
+            toast('Usuário criado com sucesso!');
+          }
+          render(); return true;
+        } catch (e) { toast(e.message,'err'); return false; }
+      });
+    } catch (e) { toast(e.message,'err'); }
+  }
+
+  async function excluirUsuario(id) {
+    if (!confirm('Excluir este usuário?')) return;
+    try {
+      await DB.Usuarios.excluir(id);
+      toast('Usuário excluído.');
+      render();
+    } catch (e) { toast(e.message,'err'); }
+  }
+
+  render();
+</script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EMU — Notas Fiscais</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"/>  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<script src="db.js"></script><script src="layout.js"></script>
+<script>if(!Auth.exigir())throw''; renderLayout('notas.html');</script>
+<script>
+const C = document.getElementById('conteudo');
+let filtro = '';
+let filtroStatus = getQueryParam('status') || '';
+
+window.setFiltroStatusNota = function (s) {
+  filtroStatus = s;
+  const url = new URL(window.location.href);
+  if (s) url.searchParams.set('status', s);
+  else url.searchParams.delete('status');
+  window.history.replaceState({}, '', url);
+  render();
+};
+
+async function render() {
+  C.innerHTML = skeletonTable(6);
+  let lista = await DB.Notas.listar(filtroStatus || undefined);
+  lista = (lista || []).slice();
+  if (filtro) {
+    lista = lista.filter(n =>
+      (n.numero||'').toLowerCase().includes(filtro) ||
+      (n.cliente||'').toLowerCase().includes(filtro) ||
+      (n.os||'').toLowerCase().includes(filtro) ||
+      (n.cpfCnpj||'').toLowerCase().includes(filtro)
+    );
+  }
+  const total = lista.reduce((s,n) => s+n.total, 0);
+  const pagas = lista.filter(n=>n.status==='paga').reduce((s,n)=>s+n.total,0);
+
+  const chips = chipsHtml([
+    ['', 'Todas'],
+    ['emitida', 'Emitidas'],
+    ['paga', 'Pagas'],
+    ['cancelada', 'Canceladas'],
+  ], filtroStatus, 'setFiltroStatusNota');
+
+  C.innerHTML = `
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      ${kpiCard({ icon: 'receipt_long', label: 'Total de Notas', value: lista.length, iconColor: 'text-[#acabaa]' })}
+      ${kpiCard({ icon: 'payments', label: 'Faturamento', value: fmt(total), iconColor: 'text-[#ffb4ac]' })}
+      ${kpiCard({ icon: 'check_circle', label: 'Recebido (pagas)', value: fmt(pagas), iconColor: 'text-green-400' })}
+    </div>
+    ${chips}
+    ${pageToolbar(
+      `<input id="busca" type="text" placeholder="Buscar..." value="${esc(filtro)}" class="input-busca" oninput="filtro=this.value.toLowerCase();render()"/><span class="text-xs text-[#acabaa] ml-2">${lista.length} nota(s)</span>`,
+      `<button type="button" onclick="abrirForm()" class="btn-primary"><span class="material-symbols-outlined text-base">add</span>Nova Nota</button>`
+    )}
+    <div class="panel table-wrap">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-[#484848]/30 text-[10px] text-[#acabaa] uppercase tracking-wider">
+            <th class="px-4 py-3 text-left">Número</th>
+            <th class="px-4 py-3 text-left">Cliente</th>
+            <th class="px-4 py-3 text-left">OS Vinculada</th>
+            <th class="px-4 py-3 text-left">Emissão</th>
+            <th class="px-4 py-3 text-right">Serviços</th>
+            <th class="px-4 py-3 text-right">Peças</th>
+            <th class="px-4 py-3 text-right">Total</th>
+            <th class="px-4 py-3 text-left">Status</th>
+            <th class="px-4 py-3 text-center">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.length ? lista.map(n => `
+            <tr class="border-b border-[#484848]/10 last:border-0">
+              <td class="px-4 py-3 font-bold text-[#ffb4ac]">${esc(n.numero)}</td>
+              <td class="px-4 py-3">
+                <div class="font-semibold text-white">${esc(n.cliente)}</div>
+                ${n.cpfCnpj?`<div class="text-xs text-[#acabaa]">${esc(n.cpfCnpj)}</div>`:''}
+              </td>
+              <td class="px-4 py-3 text-[#acabaa]">${esc(n.os)||'—'}</td>
+              <td class="px-4 py-3 text-[#acabaa]">${fmtData(n.dataEmissao)}</td>
+              <td class="px-4 py-3 text-right text-white">${fmt(n.valorServicos)}</td>
+              <td class="px-4 py-3 text-right text-white">${fmt(n.valorPecas)}</td>
+              <td class="px-4 py-3 text-right font-bold text-[#ffb4ac]">${fmt(n.total)}</td>
+              <td class="px-4 py-3"><span class="text-[10px] px-2 py-0.5 rounded-full font-semibold badge-${n.status}">${n.status}</span></td>
+              <td class="px-4 py-3 text-center">
+                <div class="flex items-center justify-center gap-1">
+                  <button onclick="imprimir(${n.id})" title="Imprimir" class="p-1 text-[#acabaa] hover:text-[#ffb4ac] transition-colors"><span class="material-symbols-outlined text-base">print</span></button>
+                  ${n.status !== 'cancelada' ? `<button onclick="abrirForm(${n.id})" title="Editar" class="p-1 text-[#acabaa] hover:text-[#ffb4ac] transition-colors"><span class="material-symbols-outlined text-base">edit</span></button>` : ''}
+                  ${n.status !== 'cancelada' ? `<button onclick="cancelarNota(${n.id})" title="Cancelar Nota" class="p-1 text-[#acabaa] hover:text-red-400 transition-colors"><span class="material-symbols-outlined text-base">cancel</span></button>` : ''}
+                </div>
+              </td>
+            </tr>`).join('') : `<tr><td colspan="9">${emptyState('Nenhuma nota encontrada.', 'receipt_long')}</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function calcTotal() {
+  const s = parseFloat(document.getElementById('f-vservicos')?.value||0)||0;
+  const p = parseFloat(document.getElementById('f-vpecas')?.value||0)||0;
+  const d = parseFloat(document.getElementById('f-desconto')?.value||0)||0;
+  const t = document.getElementById('f-total');
+  if (t) t.value = Math.max(0, s+p-d).toFixed(2);
+}
+
+async function abrirForm(id) {
+  const n = id ? await DB.Notas.buscar(id) : {};
+  if (id && n.status === 'cancelada') {
+    toast('Nota cancelada não pode ser editada.', 'err');
+    return;
+  }
+  const conteudo = `
+    <div class="grid grid-cols-2 gap-4">
+      ${campo('Cliente', 'f-cliente', 'text', n.cliente||'')}
+      ${campo('CPF / CNPJ', 'f-cpfcnpj', 'text', n.cpfCnpj||'')}
+      ${campo('Endereço', 'f-endereco', 'text', n.endereco||'')}
+      ${campo('OS Vinculada', 'f-os', 'text', n.os||'')}
+      ${campo('Data de Emissão', 'f-data', 'date', n.dataEmissao||new Date().toISOString().split('T')[0])}
+      ${select('Status', 'f-status', [['emitida','Emitida'],['paga','Paga']], n.status||'emitida')}
+    </div>
+    ${textarea('Descrição do Serviço', 'f-descricao', n.descricaoServico||'')}
+    <div class="grid grid-cols-3 gap-4">
+      ${campo('Valor Serviços', 'f-vservicos', 'number', n.valorServicos||0, 'step="0.01" oninput="calcTotal()"')}
+      ${campo('Valor Peças', 'f-vpecas', 'number', n.valorPecas||0, 'step="0.01" oninput="calcTotal()"')}
+      ${campo('Desconto', 'f-desconto', 'number', n.desconto||0, 'step="0.01" oninput="calcTotal()"')}
+    </div>
+    <div class="bg-[#93000e]/10 border border-[#ffb4ac]/20 rounded-lg p-3 flex items-center justify-between">
+      <span class="text-sm font-bold text-[#acabaa]">TOTAL</span>
+      <div class="flex items-center gap-2">
+        <span class="text-[#acabaa] text-sm">R$</span>
+        <input id="f-total" type="number" step="0.01" value="${n.total||0}" class="bg-transparent text-xl font-black text-[#ffb4ac] text-right w-32 focus:outline-none border-b border-[#ffb4ac]/30"/>
+      </div>
+    </div>
+    ${id ? textarea('Motivo da alteração (obrigatório)', 'f-motivo', '') : ''}`;
+
+  abrirModal(id ? 'Editar Nota Fiscal' : 'Nova Nota Fiscal', conteudo, async () => {
+    if (id) {
+      const motivo = val('f-motivo');
+      if (!motivo || motivo.trim() === '') { toast('Informe o motivo da alteração.', 'err'); return false; }
+    }
+    const dados = {
+      cliente: val('f-cliente'), cpfCnpj: val('f-cpfcnpj'), endereco: val('f-endereco'),
+      os: val('f-os'), dataEmissao: val('f-data'), descricaoServico: val('f-descricao'),
+      status: val('f-status'),
+      motivo: id ? val('f-motivo') : '',
+      valorServicos: parseFloat(document.getElementById('f-vservicos').value)||0,
+      valorPecas: parseFloat(document.getElementById('f-vpecas').value)||0,
+      desconto: parseFloat(document.getElementById('f-desconto').value)||0,
+      total: parseFloat(document.getElementById('f-total').value)||0,
+    };
+    if (!dados.cliente) { toast('Cliente é obrigatório.', 'err'); return false; }
+    try {
+      if (id) { await DB.Notas.atualizar(id, dados); toast('Nota atualizada!'); }
+      else { await DB.Notas.criar(dados); toast('Nota emitida!'); }
+      render();
+      return true;
+    } catch (e) {
+      toast(e.message, 'err');
+      return false;
+    }
+  });
+}
+
+async function cancelarNota(id) {
+  const n = await DB.Notas.buscar(id);
+  if (!n) return;
+  const conteudo = `
+    <div class="space-y-4">
+      <p class="text-[#acabaa] text-sm">Você está prestes a cancelar a nota <span class="font-bold text-white">${esc(n.numero)}</span>. Esta ação não pode ser desfeita.</p>
+      ${textarea('Motivo do cancelamento (obrigatório)', 'f-motivo-cancel', '')}
+    </div>`;
+  abrirModal('Cancelar Nota Fiscal', conteudo, async () => {
+    const motivo = val('f-motivo-cancel');
+    if (!motivo || motivo.trim() === '') { toast('Informe o motivo do cancelamento.', 'err'); return false; }
+    try {
+      await DB.Notas.atualizar(id, { ...n, status: 'cancelada', motivo });
+      toast('Nota cancelada.');
+      render();
+      return true;
+    } catch (e) {
+      toast(e.message, 'err');
+      return false;
+    }
+  });
+}
+
+async function imprimir(id) {
+  const n = await DB.Notas.buscar(id);
+  if (!n) return;
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${n.numero}</title>  <link rel="stylesheet" href="style.css"/>
+</head><body class="nota-impressa">
+  <h1>NOTA FISCAL — ${n.numero}</h1>
+  <p><b>Emissão:</b> ${fmtData(n.dataEmissao)}</p>
+  <hr/>
+  <p><b>Cliente:</b> ${esc(n.cliente)}</p>
+  ${n.cpfCnpj?`<p><b>CPF/CNPJ:</b> ${esc(n.cpfCnpj)}</p>`:''}
+  ${n.endereco?`<p><b>Endereço:</b> ${esc(n.endereco)}</p>`:''}
+  ${n.os?`<p><b>OS:</b> ${esc(n.os)}</p>`:''}
+  ${n.descricaoServico?`<p><b>Serviço:</b> ${esc(n.descricaoServico)}</p>`:''}
+  <hr/>
+  <table><thead><tr><th>Descrição</th><th>Valor</th></tr></thead><tbody>
+  <tr><td>Serviços</td><td>R$ ${(n.valorServicos||0).toFixed(2)}</td></tr>
+  <tr><td>Peças</td><td>R$ ${(n.valorPecas||0).toFixed(2)}</td></tr>
+  ${n.desconto?`<tr><td>Desconto</td><td>- R$ ${(n.desconto||0).toFixed(2)}</td></tr>`:''}
+  <tr><td><b>TOTAL</b></td><td class="total">R$ ${(n.total||0).toFixed(2)}</td></tr>
+  </tbody></table>
+  <p style="margin-top:40px;font-size:11px;color:#999">EMU Oficina de Precisão — Documento sem valor fiscal</p>
+  <script>window.print();<\/script></body></html>`);
+  w.document.close();
+}
+
+
+
+render().catch(console.error);
+</script>
+</body>
+</html>

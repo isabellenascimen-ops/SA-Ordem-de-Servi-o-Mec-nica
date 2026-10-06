@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EMU — Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body class="login-bg min-h-screen flex items-center justify-center p-6">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-10">
+      <span class="material-symbols-outlined text-[#ffb4ac] text-5xl" style="font-variation-settings:'FILL' 1">precision_manufacturing</span>
+      <h1 class="text-4xl font-black text-[#ffb4ac] tracking-tighter uppercase mt-2">EMU</h1>
+      <p class="text-[10px] text-[#acabaa] uppercase tracking-widest mt-1">Oficina de Precisão</p>
+    </div>
+
+    <div class="panel panel-padded shadow-2xl">
+      <div class="space-y-5">
+        <div>
+          <label class="block text-[10px] font-semibold text-[#acabaa] uppercase tracking-wider mb-1.5">E-mail</label>
+          <input id="email" type="email" placeholder="seu@email.com" autocomplete="email"
+            class="w-full bg-black border border-[#484848]/40 rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[#484848] focus:border-[#ffb4ac] focus:outline-none transition-colors"/>
+        </div>
+        <div>
+          <label class="block text-[10px] font-semibold text-[#acabaa] uppercase tracking-wider mb-1.5">Senha</label>
+          <input id="senha" type="password" placeholder="••••••••" autocomplete="current-password"
+            class="w-full bg-black border border-[#484848]/40 rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[#484848] focus:border-[#ffb4ac] focus:outline-none transition-colors"/>
+        </div>
+        <div id="erro" class="hidden text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2.5 text-center"></div>
+        <button id="btn-login" type="button" onclick="efetuarLogin()"
+          class="w-full bg-[#ffb4ac] text-[#86000c] font-black uppercase tracking-widest text-sm py-3 rounded-lg hover:brightness-110 active:scale-[0.98] transition-all mt-2 flex items-center justify-center gap-2">
+          <span>Acessar</span>
+          <span class="material-symbols-outlined text-base">arrow_forward</span>
+        </button>
+      </div>
+      <p class="text-[10px] text-[#484848] text-center mt-6">Sistema interno EMU</p>
+    </div>
+  </div>
+
+  <script src="db.js"></script>
+  <script>
+    if (Auth.atual()) window.location.href = 'dashboard.html';
+
+    async function efetuarLogin() {
+      const email = document.getElementById('email').value.trim();
+      const senha = document.getElementById('senha').value;
+      const erro = document.getElementById('erro');
+      const btn = document.getElementById('btn-login');
+      erro.classList.add('hidden');
+      if (!email || !senha) { erro.textContent = 'Preencha e-mail e senha.'; erro.classList.remove('hidden'); return; }
+      btn.disabled = true;
+      btn.innerHTML = '<span class="material-symbols-outlined animate-spin">autorenew</span>';
+      try {
+        const usuario = await Auth.login(email, senha);
+        if (usuario) {
+          Auth.salvar({ nome: usuario.nome, cargo: usuario.cargo, cargo_id: usuario.cargo_id, email: usuario.email });
+          window.location.href = 'dashboard.html';
+        } else {
+          erro.textContent = 'E-mail ou senha incorretos.';
+          erro.classList.remove('hidden');
+          document.getElementById('senha').value = '';
+          btn.disabled = false;
+          btn.innerHTML = '<span>Acessar</span><span class="material-symbols-outlined text-base">arrow_forward</span>';
+        }
+      } catch (e) {
+        erro.textContent = e.message || 'Erro ao conectar com o servidor.';
+        erro.classList.remove('hidden');
+        btn.disabled = false;
+        btn.innerHTML = '<span>Acessar</span><span class="material-symbols-outlined text-base">arrow_forward</span>';
+      }
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') efetuarLogin(); });
+  </script>
+</body>
+</html>
